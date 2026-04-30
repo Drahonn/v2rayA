@@ -1,0 +1,65 @@
+name: Build and Push v2rayA from fork source
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout fork repository
+        uses: actions/checkout@v4
+
+      - name: Get current commit hash
+        id: commit
+        run: |
+          COMMIT=$(git rev-parse --short HEAD)
+          echo "commit=$COMMIT" >> $GITHUB_OUTPUT
+          echo "Commit: $COMMIT"
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+
+      - name: Setup QEMU (riscv64)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Setup Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push multi-arch from fork source
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          platforms: linux/amd64,linux/arm64,linux/arm/v7,linux/riscv64
+          tags: |
+            ${{ secrets.DOCKER_USERNAME }}/v2raya:latest
+            ${{ secrets.DOCKER_USERNAME }}/v2raya:commit-${{ steps.commit.outputs.commit }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
+          sbom: false
+
+      - name: Cleanup old commit tags
+        if: success()
+        run: |
+          TOKEN=$(curl -s -u "${{ secrets.DOCKER_USERNAME }}:${{ secrets.DOCKER_TOKEN }}" \
+            https://hub.docker.com/v2/users/login/ | jq -r .token)
+
+          TAGS=$(curl -s -H "Authorization: Bearer $TOKEN" \
+            "https://hub.docker.com/v2/repositories/${{ secrets.DOCKER_USERNAME }}/v2raya/tags/?page_size=100" \
+            | jq -r '.results[].name' \
+            | grep '^commit-' || true)
+
+          for TAG in $TAGS; do
+            echo "Deleting old tag: $TAG"
+            curl -X DELETE -H "Authorization: Bearer $TOKEN" \
+              "https://hub.docker.com/v2/repositories/${{ secrets.DOCKER_USERNAME }}/v2raya/tags/$TAG/"
+          done

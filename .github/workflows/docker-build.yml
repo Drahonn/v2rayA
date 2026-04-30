@@ -1,4 +1,4 @@
-name: Docker Hub Release (from fork source)
+name: Docker Hub Release v2rayA
 
 on:
   push:
@@ -15,14 +15,20 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Get commit
-        id: commit
-        run: echo "commit=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+      - name: Get latest upstream version
+        id: version
+        run: |
+          VERSION=$(curl -s https://api.github.com/repos/v2rayA/v2rayA/releases \
+            | jq -r '.[0].tag_name' \
+            | sed 's/^v//')
+
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Selected version: $VERSION"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
-
-      - name: Set up Buildx
+        
+      - name: Set up Docker Buildx
         id: buildx
         uses: docker/setup-buildx-action@v3
 
@@ -32,7 +38,7 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_TOKEN }}
 
-      - name: Build and push (official Action Dockerfile)
+      - name: Build and push multi-arch image
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -42,7 +48,7 @@ jobs:
           push: true
           tags: |
             ${{ secrets.DOCKER_USERNAME }}/v2raya:latest
-            ${{ secrets.DOCKER_USERNAME }}/v2raya:commit-${{ steps.commit.outputs.commit }}
+            ${{ secrets.DOCKER_USERNAME }}/v2raya:v${{ steps.version.outputs.version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           provenance: false
